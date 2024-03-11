@@ -33,7 +33,10 @@ const { usingContext, toggleUsingContext } = useUsingContext()
 
 const { uuid } = route.params as { uuid: string }
 
+// dataSources 保存的是整个当前聊天的记录，包括自己的和返回的
 const dataSources = computed(() => chatStore.getChatByUuid(+uuid))
+// item.inversion是指是否是自己发送的问题，true为自己发送的，false是返回的
+// 这里排除自己发的 且 conversationOptions不为空的（应该是正常返回的数据），总而言之就是筛选出返回的有效数据
 const conversationList = computed(() => dataSources.value.filter(item => (!item.inversion && !!item.conversationOptions)))
 
 const prompt = ref<string>('')
@@ -524,6 +527,11 @@ onUnmounted(() => {
             </span>
           </HoverButton>
           <HoverButton @click="toggleUsingContext">
+            <span class="text-xl" :class="{ 'text-[#4b9e5f]': usingContext, 'text-[#a8071a]': !usingContext }">
+              <SvgIcon icon="ri:chat-history-line" />
+            </span>
+          </HoverButton>
+          <HoverButton>
             <span class="text-xl" :class="{ 'text-[#4b9e5f]': usingContext, 'text-[#a8071a]': !usingContext }">
               <SvgIcon icon="ri:chat-history-line" />
             </span>
