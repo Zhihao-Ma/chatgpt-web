@@ -8,6 +8,7 @@ import fetch from 'node-fetch'
 import { sendResponse } from '../utils'
 import { isNotEmptyString } from '../utils/is'
 import type { ApiModel, ChatContext, ChatGPTUnofficialProxyAPIOptions, ModelConfig } from '../types'
+import config from '../../config.json'
 import type { RequestOptions, SetProxyOptions, UsageResponse } from './types'
 
 const { HttpsProxyAgent } = httpsProxyAgent
@@ -27,76 +28,93 @@ const timeoutMs: number = !isNaN(+process.env.TIMEOUT_MS) ? +process.env.TIMEOUT
 const disableDebug: boolean = process.env.OPENAI_API_DISABLE_DEBUG === 'true'
 
 let apiModel: ApiModel
-const model = isNotEmptyString(process.env.OPENAI_API_MODEL) ? process.env.OPENAI_API_MODEL : 'gpt-3.5-turbo'
+// const model = isNotEmptyString(process.env.OPENAI_API_MODEL) ? process.env.OPENAI_API_MODEL : 'gpt-3.5-turbo'
 
 if (!isNotEmptyString(process.env.OPENAI_API_KEY) && !isNotEmptyString(process.env.OPENAI_ACCESS_TOKEN))
   throw new Error('Missing OPENAI_API_KEY or OPENAI_ACCESS_TOKEN environment variable')
 
 let api: ChatGPTAPI | ChatGPTUnofficialProxyAPI
 
+const chatModel: any = {};
+
 (async () => {
   // More Info: https://github.com/transitive-bullshit/chatgpt-api
 
-  if (isNotEmptyString(process.env.OPENAI_API_KEY)) {
-    const OPENAI_API_BASE_URL = process.env.OPENAI_API_BASE_URL
+  function initModel(model: string) {
+    if (isNotEmptyString(config[model].OPENAI_API_KEY)) {
+      const OPENAI_API_BASE_URL = config[model].OPENAI_API_BASE_URL
 
-    const options: ChatGPTAPIOptions = {
-      apiKey: process.env.OPENAI_API_KEY,
-      completionParams: { model },
-      debug: !disableDebug,
-    }
+      const options: ChatGPTAPIOptions = {
+        apiKey: config[model].OPENAI_API_KEY,
+        completionParams: { model },
+        debug: !disableDebug,
+      }
 
-    // increase max token limit if use gpt-4
-    if (model.toLowerCase().includes('gpt-4')) {
+      // increase max token limit if use gpt-4
+      if (model.toLowerCase().includes('gpt-4')) {
       // if use 32k model
-      if (model.toLowerCase().includes('32k')) {
-        options.maxModelTokens = 32768
-        options.maxResponseTokens = 8192
+        if (model.toLowerCase().includes('32k')) {
+          options.maxModelTokens = 32768
+          options.maxResponseTokens = 8192
+        }
+        // if use GPT-4 Turbo
+        else if (model.toLowerCase().includes('-preview')) {
+          options.maxModelTokens = 128000
+          options.maxResponseTokens = 4096
+        }
+        else {
+          options.maxModelTokens = 8192
+          options.maxResponseTokens = 2048
+        }
       }
-      // if use GPT-4 Turbo
-      else if (model.toLowerCase().includes('-preview')) {
-        options.maxModelTokens = 128000
-        options.maxResponseTokens = 4096
+      else if (model.toLowerCase().includes('gpt-3.5')) {
+        if (model.toLowerCase().includes('16k')) {
+          options.maxModelTokens = 16384
+          options.maxResponseTokens = 4096
+        }
       }
-      else {
-        options.maxModelTokens = 8192
-        options.maxResponseTokens = 2048
-      }
+
+      if (isNotEmptyString(OPENAI_API_BASE_URL))
+        options.apiBaseUrl = `${OPENAI_API_BASE_URL}/v1`
+
+      setupProxy(options)
+
+      api = new ChatGPTAPI({ ...options })
+      apiModel = 'ChatGPTAPI'
     }
-    else if (model.toLowerCase().includes('gpt-3.5')) {
-      if (model.toLowerCase().includes('16k')) {
-        options.maxModelTokens = 16384
-        options.maxResponseTokens = 4096
+    else {
+      const options: ChatGPTUnofficialProxyAPIOptions = {
+        accessToken: config[model].OPENAI_ACCESS_TOKEN,
+        apiReverseProxyUrl: isNotEmptyString(config[model].API_REVERSE_PROXY) ? config[model].API_REVERSE_PROXY : 'https://ai.fakeopen.com/api/conversation',
+        model,
+        debug: !disableDebug,
       }
+
+      setupProxy(options)
+
+      api = new ChatGPTUnofficialProxyAPI({ ...options })
+      apiModel = 'ChatGPTUnofficialProxyAPI'
     }
-
-    if (isNotEmptyString(OPENAI_API_BASE_URL))
-      options.apiBaseUrl = `${OPENAI_API_BASE_URL}/v1`
-
-    setupProxy(options)
-
-    api = new ChatGPTAPI({ ...options })
-    apiModel = 'ChatGPTAPI'
+    return {
+      api,
+      apiModel,
+    }
   }
-  else {
-    const options: ChatGPTUnofficialProxyAPIOptions = {
-      accessToken: process.env.OPENAI_ACCESS_TOKEN,
-      apiReverseProxyUrl: isNotEmptyString(process.env.API_REVERSE_PROXY) ? process.env.API_REVERSE_PROXY : 'https://ai.fakeopen.com/api/conversation',
-      model,
-      debug: !disableDebug,
-    }
 
-    setupProxy(options)
-
-    api = new ChatGPTUnofficialProxyAPI({ ...options })
-    apiModel = 'ChatGPTUnofficialProxyAPI'
-  }
+  chatModel['gpt-3.5'] = initModel('gpt-3.5')
+  chatModel['gpt-4.0'] = initModel('gpt-4.0')
 })()
 
 async function chatReplyProcess(options: RequestOptions) {
-  const { message, lastContext, process, systemMessage, temperature, top_p } = options
+  const { message, lastContext, process, systemMessage, temperature, top_p, model } = options
   try {
     let options: SendMessageOptions = { timeoutMs }
+
+    const apiModel = chatModel[model].apiModel
+    const api = chatModel[model].api
+
+    // console.log('api', api)
+    // console.log('apiModel', apiModel)
 
     if (apiModel === 'ChatGPTAPI') {
       if (isNotEmptyString(systemMessage))

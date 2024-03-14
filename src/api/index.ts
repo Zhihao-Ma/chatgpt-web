@@ -33,6 +33,7 @@ export function fetchChatAPIProcess<T = any>(
   let data: Record<string, any> = {
     prompt: params.prompt,
     options: params.options,
+    model: 'gpt-4.0',
   }
 
   if (authStore.isChatGPTAPI) {
